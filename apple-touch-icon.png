@@ -1,0 +1,28 @@
+'use strict';
+
+const store = globalThis.__freshfillMemoryCache || new Map();
+globalThis.__freshfillMemoryCache = store;
+
+function getCached(key) {
+  const value = store.get(key);
+  if (!value) return null;
+  if (value.expiresAt <= Date.now()) {
+    store.delete(key);
+    return null;
+  }
+  return value.data;
+}
+
+function setCached(key, data, ttlMs) {
+  store.set(key, { data, expiresAt: Date.now() + ttlMs });
+  if (store.size > 300) prune();
+}
+
+function prune() {
+  const now = Date.now();
+  for (const [key, value] of store) {
+    if (value.expiresAt <= now) store.delete(key);
+  }
+}
+
+module.exports = { getCached, setCached };

@@ -1,0 +1,208 @@
+(function () {
+  const R = window.FreshFillRecommender;
+  const PANEL_ID = 'freshfill-coupang-panel';
+  const MIN_AMOUNT = 15000;
+
+  if (!R) return;
+  if (!isLikelyCartPage()) return;
+
+  let lastSignature = '';
+  injectPanel();
+  refreshPanel();
+
+  const observer = new MutationObserver(() => {
+    window.clearTimeout(observer._timer);
+    observer._timer = window.setTimeout(refreshPanel, 800);
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+  function isLikelyCartPage() {
+    const url = location.href.toLowerCase();
+    const host = location.hostname.toLowerCase();
+    if (!host.includes('coupang.com')) return false;
+    return url.includes('cart') || url.includes('cartview') || /장바구니/.test(document.title || '');
+  }
+
+  function injectPanel() {
+    if (document.getElementById(PANEL_ID)) return;
+    const panel = document.createElement('aside');
+    panel.id = PANEL_ID;
+    panel.innerHTML = `
+      <div class="ff-head">
+        <div>
+          <b>로켓프레시 채우기</b>
+          <span>장바구니 기반 추천</span>
+        </div>
+        <button class="ff-close" type="button" aria-label="닫기">×</button>
+      </div>
+      <div class="ff-status">
+        <div><span>합계</span><strong data-role="total">-</strong></div>
+        <div><span>부족</span><strong data-role="need">-</strong></div>
+      </div>
+      <div class="ff-note" data-role="note">장바구니를 읽는 중입니다.</div>
+      <div class="ff-list" data-role="list"></div>
+      <div class="ff-actions">
+        <button type="button" data-role="refresh">새로고침</button>
+        <button type="button" data-role="copy">요약 복사</button>
+      </div>
+      <p class="ff-disclaimer">쿠팡 비공식 도구입니다. 실제 가격·재고·로켓프레시 여부는 쿠팡 상품 페이지에서 최종 확인하세요.</p>
+    `;
+    document.body.appendChild(panel);
+
+    panel.querySelector('.ff-close').addEventListener('click', () => panel.remove());
+    panel.querySelector('[data-role="refresh"]').addEventListener('click', refreshPanel);
+    panel.querySelector('[data-role="copy"]').addEventListener('click', copySummary);
+  }
+
+  function refreshPanel() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+
+    const items = extractCartItems();
+    const signature = JSON.stringify(items);
+    if (signature === lastSignature && panel.dataset.rendered === '1') return;
+    lastSignature = signature;
+
+    const result = R.recommend(items, { minAmount: MIN_AMOUNT, limit: 5 });
+    panel.dataset.summary = buildSummary(result);
+    panel.dataset.rendered = '1';
+
+    panel.querySelector('[data-role="total"]').textContent = R.formatWon(result.total);
+    panel.querySelector('[data-role="need"]').textContent = result.required > 0 ? R.formatWon(result.required) : '0원';
+    const note = panel.querySelector('[data-role="note"]');
+
+    if (!items.length) {
+      note.textContent = '상품명/가격을 자동 인식하지 못했습니다. 쿠팡 장바구니 화면 구조가 바뀌었을 수 있습니다.';
+    } else if (result.required <= 0) {
+      note.textContent = `${items.length}개 상품을 인식했습니다. 이미 최소금액을 넘겼습니다.`;
+    } else {
+      note.textContent = `${items.length}개 상품 인식 · ${R.formatWon(result.required)} 더 채우면 됩니다.`;
+    }
+
+    panel.querySelector('[data-role="list"]').innerHTML = result.recommendations.map((rec, index) => `
+      <a class="ff-card" href="${rec.link}" target="_blank" rel="noopener">
+        <span class="ff-rank">${index + 1}</span>
+        <div>
+          <b>${escapeHtml(rec.title)}</b>
+          <small>${escapeHtml(rec.priceRangeText)} · ${escapeHtml(rec.storage)}</small>
+          <em>${escapeHtml(rec.reason)}</em>
+        </div>
+      </a>
+    `).join('');
+  }
+
+  function extractCartItems() {
+    const byKey = new Map();
+    const productLinks = Array.from(document.querySelectorAll('a[href*="/vp/products"], a[href*="/products/"]'));
+
+    productLinks.forEach(link => {
+      const name = cleanName(link.textContent || link.getAttribute('title') || link.getAttribute('aria-label') || '');
+      if (!isUsefulName(name)) return;
+      const block = closestProductBlock(link);
+      const price = extractLikelyPrice(block ? block.textContent : link.parentElement?.textContent || '');
+      if (!price) return;
+      const key = `${name}::${price}`;
+      if (!byKey.has(key)) byKey.set(key, { name, price, qty: 1 });
+    });
+
+    // Fallback for cart rows without product links.
+    if (byKey.size < 1) {
+      const blocks = Array.from(document.querySelectorAll('li, tr, [class*="cart"], [class*="Cart"], [class*="product"], [class*="Product"]'))
+        .filter(el => (el.textContent || '').includes('원'))
+        .slice(0, 80);
+      blocks.forEach(block => {
+        const text = compact(block.textContent || '');
+        const price = extractLikelyPrice(text);
+        const name = guessNameFromBlock(text);
+        if (!price || !isUsefulName(name)) return;
+        const key = `${name}::${price}`;
+        if (!byKey.has(key)) byKey.set(key, { name, price, qty: 1 });
+      });
+    }
+
+    return Array.from(byKey.values())
+      .filter(item => item.price >= 100 && item.price <= 300000)
+      .slice(0, 40);
+  }
+
+  function closestProductBlock(el) {
+    const selectors = [
+      'li', 'tr',
+      '[class*="cart"]', '[class*="Cart"]',
+      '[class*="product"]', '[class*="Product"]',
+      '[class*="item"]', '[class*="Item"]'
+    ];
+    for (const selector of selectors) {
+      const block = el.closest(selector);
+      if (block && (block.textContent || '').includes('원')) return block;
+    }
+    return el.parentElement;
+  }
+
+  function extractLikelyPrice(text) {
+    const matches = String(text || '').match(/(?:₩\s*)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})\s*원/g) || [];
+    const numbers = matches
+      .map(match => R.parsePrice(match))
+      .filter(num => num >= 100 && num <= 300000);
+    if (!numbers.length) return 0;
+    // In carts, product subtotal is often the largest meaningful price inside the item block.
+    return Math.max(...numbers);
+  }
+
+  function guessNameFromBlock(text) {
+    const compacted = compact(text);
+    const beforePrice = compacted.split(/(?:₩\s*)?[0-9]{1,3}(?:,[0-9]{3})*\s*원/)[0] || compacted;
+    return cleanName(beforePrice.split(/\s{2,}|무료배송|로켓프레시|로켓배송/)[0] || beforePrice).slice(0, 70);
+  }
+
+  function cleanName(text) {
+    return compact(text)
+      .replace(/로켓프레시|로켓배송|와우회원|무료배송|상품평|장바구니|삭제|수량/g, ' ')
+      .replace(/\b[0-9]+\s*개\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function compact(text) {
+    return String(text || '').replace(/[\n\t\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function isUsefulName(name) {
+    if (!name || name.length < 2 || name.length > 90) return false;
+    if (/^[0-9,원\s%-]+$/.test(name)) return false;
+    if (/주문|결제|할인|쿠폰|배송비|예상|총금액|선택|옵션|가격/.test(name)) return false;
+    return true;
+  }
+
+  async function copySummary() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    try {
+      await navigator.clipboard.writeText(panel.dataset.summary || '');
+      panel.querySelector('[data-role="note"]').textContent = '추천 요약을 복사했습니다.';
+    } catch (_) {
+      panel.querySelector('[data-role="note"]').textContent = '브라우저 권한 때문에 복사하지 못했습니다.';
+    }
+  }
+
+  function buildSummary(result) {
+    const lines = [
+      `로켓프레시 장바구니 합계: ${R.formatWon(result.total)}`,
+      `부족 금액: ${R.formatWon(result.required)}`,
+      '추천:'
+    ];
+    result.recommendations.forEach((rec, index) => {
+      lines.push(`${index + 1}. ${rec.title} (${rec.priceRangeText}) ${rec.link}`);
+    });
+    return lines.join('\n');
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+})();
