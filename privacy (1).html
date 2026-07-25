@@ -1,0 +1,81 @@
+'use strict';
+
+function sendJson(res, status, payload, extraHeaders = {}) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  Object.entries(extraHeaders).forEach(([key, value]) => res.setHeader(key, value));
+  res.end(JSON.stringify(payload));
+}
+
+function getQuery(req) {
+  if (req.query && typeof req.query === 'object') return req.query;
+  const host = req.headers.host || 'localhost';
+  const url = new URL(req.url || '/', `https://${host}`);
+  return Object.fromEntries(url.searchParams.entries());
+}
+
+function getClientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || String(req.socket?.remoteAddress || 'unknown');
+}
+
+function assertMethod(req, allowed) {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (!allowed.includes(method)) {
+    const error = new Error(`허용되지 않은 요청 방식입니다: ${method}`);
+    error.status = 405;
+    error.headers = { Allow: allowed.join(', ') };
+    throw error;
+  }
+}
+
+function assertAllowedOrigin(req) {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return;
+
+  const configured = String(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(value => value.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  const normalized = origin.replace(/\/$/, '');
+  if (configured.length && configured.includes(normalized)) return;
+
+  if (!configured.length) {
+    try {
+      const originUrl = new URL(origin);
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+      if (originUrl.host === host) return;
+    } catch (_) {}
+  }
+
+  const error = new Error('허용되지 않은 출처의 요청입니다.');
+  error.status = 403;
+  throw error;
+}
+
+function handleOptions(req, res) {
+  if (String(req.method || '').toUpperCase() !== 'OPTIONS') return false;
+  res.statusCode = 204;
+  res.setHeader('Allow', 'GET, POST, OPTIONS');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.end();
+  return true;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+module.exports = {
+  sendJson,
+  getQuery,
+  getClientIp,
+  assertMethod,
+  assertAllowedOrigin,
+  handleOptions,
+  clampNumber
+};

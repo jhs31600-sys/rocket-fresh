@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { width: 310px; margin: 0; padding: 17px; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif; color: #111827; }
+    .brand { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+    .brand img { width: 32px; height: 32px; border-radius: 9px; }
+    h1 { font-size: 18px; margin: 0; letter-spacing: -0.04em; }
+    p { color: #64748b; line-height: 1.55; margin: 0 0 14px; }
+    .primary { display: block; text-align: center; background: #1967ff; color: #fff; text-decoration: none; border-radius: 14px; padding: 12px; font-weight: 900; }
+    .links { display: flex; justify-content: center; gap: 12px; margin-top: 12px; }
+    .links a { color: #64748b; font-size: 11px; font-weight: 800; }
+    small { display: block; margin-top: 12px; color: #94a3b8; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="brand">
+    <img src="icons/icon-32.png" alt="" />
+    <h1>프레시필</h1>
+  </div>
+  <p>쿠팡 장바구니 페이지를 열면 오른쪽 아래 추천 패널이 자동으로 뜹니다.</p>
+  <a class="primary" href="https://cart.coupang.com/cartView.pang" target="_blank" rel="noopener noreferrer">쿠팡 장바구니 열기</a>
+  <div class="links"><a href="privacy.html" target="_blank">개인정보 안내</a></div>
+  <small>쿠팡 비공식 도구입니다. 상품명·가격 인식은 쿠팡 화면 구조에 따라 달라질 수 있으며 최종 조건은 쿠팡에서 확인해야 합니다.</small>
+</body>
+</html>

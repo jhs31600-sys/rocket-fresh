@@ -1,21 +1,42 @@
-MIT License
+'use strict';
 
-Copyright (c) 2026 Rocket Fresh Fill contributors
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { generateHmac, normalizeProducts, safeProductUrl } = require('../lib/coupang');
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+test('HMAC 헤더는 고정 시각에서 결정적으로 생성된다', () => {
+  const header = generateHmac(
+    'GET',
+    '/v2/providers/test?keyword=%EB%8C%80%ED%8C%8C',
+    'secret',
+    'access',
+    new Date('2026-07-25T12:34:56.000Z')
+  );
+  assert.match(header, /^CEA algorithm=HmacSHA256, access-key=access, signed-date=260725T123456Z, signature=[a-f0-9]{64}$/);
+});
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+test('상품 응답은 필요한 공개 필드만 남긴다', () => {
+  const products = normalizeProducts({
+    data: {
+      productData: [{
+        productId: 1,
+        productName: '테스트 두부',
+        productPrice: 2100,
+        productImage: 'https://image.example.com/a.jpg',
+        productUrl: 'https://link.coupang.com/a/test',
+        isRocket: true,
+        isFreeShipping: false,
+        privateField: 'remove-me'
+      }]
+    }
+  });
+  assert.equal(products.length, 1);
+  assert.deepEqual(Object.keys(products[0]).sort(), [
+    'categoryName', 'image', 'isFreeShipping', 'isRocket', 'name', 'price', 'productId', 'url'
+  ].sort());
+});
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+test('허용되지 않은 외부 상품 URL은 제거한다', () => {
+  assert.equal(safeProductUrl('https://evil.example.com/item'), '');
+  assert.match(safeProductUrl('https://www.coupang.com/vp/products/1'), /^https:\/\/www\.coupang\.com/);
+});

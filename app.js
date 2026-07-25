@@ -1,5 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="프레시필">
-  <rect width="64" height="64" rx="18" fill="#111827"/>
-  <path d="M19 18h26v9H29v8h14v9H29v12H19z" fill="#fff"/>
-  <circle cx="46" cy="16" r="7" fill="#1967ff"/>
-</svg>
+'use strict';
+
+const buckets = globalThis.__freshfillRateBuckets || new Map();
+globalThis.__freshfillRateBuckets = buckets;
+
+function consumeRateLimit(key, options = {}) {
+  const limit = options.limit || 8;
+  const windowMs = options.windowMs || 60_000;
+  const now = Date.now();
+  const existing = buckets.get(key);
+
+  if (!existing || existing.resetAt <= now) {
+    const bucket = { count: 1, resetAt: now + windowMs };
+    buckets.set(key, bucket);
+    cleanOccasionally(now);
+    return { allowed: true, remaining: limit - 1, resetAt: bucket.resetAt };
+  }
+
+  existing.count += 1;
+  const allowed = existing.count <= limit;
+  return {
+    allowed,
+    remaining: Math.max(0, limit - existing.count),
+    resetAt: existing.resetAt
+  };
+}
+
+function cleanOccasionally(now) {
+  if (buckets.size < 500) return;
+  for (const [key, value] of buckets) {
+    if (value.resetAt <= now) buckets.delete(key);
+  }
+}
+
+module.exports = { consumeRateLimit };
